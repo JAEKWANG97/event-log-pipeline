@@ -1,3 +1,5 @@
+-- 구매 완료, 구매 실패, 정산 실패 이벤트 중 실패성 이벤트 비율을 계산합니다.
+-- settlement_failed는 성공 counterpart가 없으므로 엄밀한 정산 실패율이 아니라 운영 리스크 지표로 해석합니다.
 WITH target_events AS (
     SELECT
         event_type,
