@@ -1,1 +1,3 @@
 dev-log.md
+__pycache__/
+*.py[cod]
