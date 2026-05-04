@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from urllib.parse import urlsplit, urlunsplit
 
 from app.config import load_settings
+from app.events import generate_events
 
 
 def main() -> None:
@@ -14,6 +16,9 @@ def main() -> None:
     print(f"EVENT_BATCH_SIZE={settings.event_batch_size}")
     print(f"EVENT_INTERVAL_SECONDS={settings.event_interval_seconds}")
     print(f"ANALYTICS_INTERVAL_SECONDS={settings.analytics_interval_seconds}")
+    print("SAMPLE_EVENTS=")
+    for event in generate_events(5, seed=42):
+        print(json.dumps(event.to_dict(), sort_keys=True))
 
 
 def _mask_database_url(database_url: str) -> str:
