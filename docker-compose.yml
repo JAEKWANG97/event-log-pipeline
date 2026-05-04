@@ -31,5 +31,45 @@ services:
       ANALYTICS_INTERVAL_SECONDS: 30
     restart: unless-stopped
 
+  metabase:
+    image: metabase/metabase:latest
+    container_name: liveclass-metabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+      MB_ANON_TRACKING_ENABLED: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - metabase_data:/metabase-data
+    restart: unless-stopped
+
+  metabase-setup:
+    image: python:3.12-slim
+    container_name: liveclass-metabase-setup
+    depends_on:
+      metabase:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    environment:
+      METABASE_URL: http://metabase:3000
+      METABASE_EMAIL: admin@liveclass.local
+      METABASE_PASSWORD: Liveclass!2026
+      METABASE_SITE_NAME: Liveclass Event Pipeline
+      METABASE_DATABASE_NAME: Liveclass Events
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: liveclass
+      POSTGRES_USER: liveclass
+      POSTGRES_PASSWORD: liveclass
+    volumes:
+      - ./metabase:/setup:ro
+    command: ["python", "/setup/setup.py"]
+    restart: "no"
+
 volumes:
   postgres_data:
+  metabase_data:
