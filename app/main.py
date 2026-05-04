@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from urllib.parse import urlsplit, urlunsplit
 
 from app.config import load_settings
@@ -22,22 +23,44 @@ def main() -> None:
             initialize_schema(connection)
 
             existing_event_count = count_events(connection)
+            # 재실행 시 초기 seed 50,000건이 계속 누적되지 않도록 기존 데이터가 있으면 건너뜁니다.
             if existing_event_count > 0:
                 print(f"existing_event_count={existing_event_count}")
                 print("initial_seed=skipped")
-                return
+            else:
+                seed_events = generate_events(settings.initial_event_count)
+                inserted_count = insert_events(
+                    connection,
+                    seed_events,
+                    batch_size=settings.event_batch_size,
+                )
+                print(f"seeded_event_count={inserted_count}")
 
-            seed_events = generate_events(settings.initial_event_count)
-            inserted_count = insert_events(
-                connection,
-                seed_events,
-                batch_size=settings.event_batch_size,
-            )
+            run_event_loop(connection, settings.event_batch_size, settings.event_interval_seconds)
     except RuntimeError as exc:
         print(f"ERROR={exc}")
         raise SystemExit(1)
 
-    print(f"seeded_event_count={inserted_count}")
+
+def run_event_loop(connection, event_batch_size: int, interval_seconds: int) -> None:
+    """앱 컨테이너가 종료되지 않도록 주기적으로 새 이벤트를 저장합니다."""
+
+    if interval_seconds <= 0:
+        raise ValueError("interval_seconds must be greater than 0")
+
+    while True:
+        events = generate_events(event_batch_size, days=1)
+        inserted_count = insert_events(
+            connection,
+            events,
+            batch_size=event_batch_size,
+        )
+        total_event_count = count_events(connection)
+        print(
+            f"inserted_event_count={inserted_count} "
+            f"total_event_count={total_event_count}"
+        )
+        time.sleep(interval_seconds)
 
 
 def _mask_database_url(database_url: str) -> str:
