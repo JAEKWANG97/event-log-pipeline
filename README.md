@@ -128,7 +128,7 @@ docker compose down -v
 
 ## 저장소 선택 이유
 
-현업의 대규모 이벤트 로그 파이프라인에서는 Kafka/Kinesis 같은 스트리밍 시스템으로 이벤트를 수집하고,
+대규모 이벤트 로그 파이프라인에서는 Kafka/Kinesis 같은 스트리밍 시스템으로 이벤트를 수집하고,
 S3 같은 데이터 레이크에 원본 로그를 저장한 뒤,
 Redshift, BigQuery, Snowflake 같은 데이터 웨어하우스에서 분석하는 구조를 많이 사용합니다.
 
@@ -137,8 +137,7 @@ Redshift, BigQuery, Snowflake 같은 데이터 웨어하우스에서 분석하�
 과제 범위에 비해 관리 포인트가 커진다고 보았습니다.
 따라서 이번 구현에서는 이벤트 생성, 저장, SQL 분석, 시각화 흐름을 PostgreSQL과 Metabase 중심으로 단순하게 구성했습니다.
 
-JD에는 MySQL/MariaDB가 명시되어 있고, MySQL이나 MariaDB로도 같은 구조를 구현할 수 있습니다.
-다만 이번 과제에서는 시간대별 이벤트 추이와 실패 이벤트 비율 같은 분석 쿼리를 간결하게 표현하기 위해 PostgreSQL을 선택했습니다.
+이번 과제에서는 시간대별 이벤트 추이와 실패 이벤트 비율 같은 분석 쿼리를 간결하게 표현하기 위해 PostgreSQL을 선택했습니다.
 PostgreSQL의 `TIMESTAMPTZ`, `DATE_TRUNC()`, `FILTER` 구문을 활용하면 시간 기반 집계와 조건부 집계를 명확하게 작성할 수 있습니다.
 실무에서는 개인 선호보다 팀의 표준 스택과 운영 환경을 우선해 저장소를 선택할 것입니다.
 
@@ -147,12 +146,6 @@ PostgreSQL의 `TIMESTAMPTZ`, `DATE_TRUNC()`, `FILTER` 구문을 활용하면 시
 MongoDB는 이벤트 payload가 자주 바뀌거나 document 형태의 원본 이벤트를 빠르게 적재해야 할 때 좋은 선택지가 될 수 있습니다.
 다만 이번 과제에서는 JSON document 저장보다 필드 단위 저장, SQL 집계, BI 도구 연동을 보여주는 것이 중요하다고 판단했습니다.
 그래서 유연한 document 저장소보다는 명시적인 스키마와 SQL 분석이 가능한 PostgreSQL을 선택했습니다.
-
-Redis, Elasticsearch/OpenSearch, Vector DB, MQ도 이벤트 파이프라인에서 사용할 수 있지만 역할은 다르다고 보았습니다.
-Redis는 최근 이벤트 수, 인기 강의 랭킹, rate limit 같은 빠른 임시 상태 관리에 적합합니다.
-Elasticsearch/OpenSearch는 특정 사용자나 에러 코드의 이벤트 흐름을 빠르게 검색하고 장애 상황을 탐색하는 데 적합합니다.
-Vector DB는 일반 이벤트 저장보다는 강의 추천, 자연어 검색, 리뷰/문의 유사도 분석처럼 임베딩 기반 기능이 필요할 때 적합합니다.
-MQ는 이벤트 수집과 저장/분석 처리를 분리해 API 서버 부하를 줄이고 재처리 가능성을 확보할 때 필요합니다.
 
 PostgreSQL은 기본 RDB 기능뿐 아니라 extension 생태계가 넓다는 점도 장점이라고 보았습니다.
 예를 들어 `pg_stat_statements`로 쿼리 실행 통계를 확인할 수 있고,
