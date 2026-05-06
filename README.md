@@ -273,6 +273,67 @@ Metabase는 `docker compose up` 실행 시 함께 실행되며,
 그래서 공통 분석 필드를 하나의 `events` 테이블에 두고,
 이벤트 종류에 따라 필요 없는 필드는 nullable로 처리했습니다.
 
+## 선택과제 B: AWS 아키텍처
+
+이 과제를 AWS에서 운영한다면 현재 로컬 파이프라인을 그대로 확장하기보다,
+이벤트 수집, 저장, 분석 조회, 모니터링의 역할을 분리하는 방향으로 설계할 것입니다.
+
+### 구성도
+
+![AWS architecture](docs/images/aws-architecture.png)
+
+### 사용 서비스와 선택 이유
+
+| 서비스 | 역할 | 선택 이유 |
+| --- | --- | --- |
+| ALB | 외부 요청을 API 서버로 분산 | 인터넷 진입점을 ALB로 제한하고, 여러 API 서버 인스턴스로 트래픽을 분산하기 위해 선택했습니다. |
+| EC2 Auto Scaling Group | API 서버 실행 | 트래픽 증가 시 API 서버를 수평 확장하고, 인스턴스 장애 시 교체할 수 있도록 하기 위한 실행 환경입니다. |
+| SQS | 이벤트 버퍼 | API 서버가 RDS에 직접 write하지 않고 이벤트를 먼저 발행하도록 하여, DB 장애나 consumer 지연 시에도 이벤트를 일정 시간 보관할 수 있습니다. |
+| Lambda | 이벤트 consumer | SQS 메시지 도착 시 트리거되어 이벤트를 RDS에 저장하는 비동기 처리 역할입니다. 별도 서버 관리 없이 consumer를 운영할 수 있습니다. |
+| RDS PostgreSQL Primary | 이벤트 write 저장소 | 정형화된 이벤트 데이터를 PostgreSQL 테이블에 저장합니다. Private Subnet에 배치해 외부 직접 접근을 막고, 백업과 패치 같은 관리형 DB 기능을 활용할 수 있습니다. |
+| RDS Read Replica | 분석 조회 분리 | Metabase의 집계 쿼리를 Primary와 분리해 운영 write 성능에 영향을 덜 주기 위해 사용합니다. |
+| Metabase | 시각화 | Read Replica를 조회해 이벤트 집계 결과를 대시보드로 확인하는 역할입니다. 운영 환경에서는 Private Subnet에 두고 ALB 또는 사내 VPN을 통해 접근하도록 구성할 수 있습니다. |
+| CloudWatch | 모니터링/알람 | EC2, Lambda, RDS, ALB의 로그와 지표를 수집합니다. 임계값 초과 시 SNS나 Slack 연동으로 알림을 보낼 수 있습니다. |
+
+### 네트워크 구성
+
+- Public Subnet에는 ALB와 NAT Gateway처럼 인터넷과 직접 맞닿아야 하는 리소스만 배치합니다.
+- Private Subnet에는 EC2 API 서버, Lambda consumer, RDS, Metabase를 배치해 외부 직접 접근을 막습니다.
+- NAT Gateway는 Private Subnet 리소스가 패키지 설치나 외부 API 호출처럼 outbound 인터넷 접근이 필요할 때 사용하는 단방향 출구입니다.
+- VPC Endpoint를 사용하면 Private Subnet의 API 서버가 인터넷을 거치지 않고 SQS에 접근할 수 있습니다.
+- Security Group은 EC2가 ALB에서 오는 트래픽만 받고, RDS는 EC2/Lambda에서 오는 PostgreSQL 포트만 허용하도록 제한합니다.
+
+### 선택한 AWS 서비스의 역할 차이
+
+SQS, RDS, Read Replica는 모두 데이터를 다루지만 목적이 다릅니다.
+SQS는 영구 분석 저장소가 아니라 API 서버와 저장 consumer 사이에서 이벤트를 잠시 보관하는 버퍼입니다.
+RDS Primary는 분석 가능한 정형 이벤트 테이블을 저장하는 write 저장소입니다.
+RDS Read Replica는 Metabase 같은 분석 조회가 Primary에 주는 부하를 줄이기 위한 read 저장소입니다.
+
+CloudWatch는 이벤트 데이터를 분석하는 저장소가 아니라 운영 로그와 지표를 관찰하는 모니터링 서비스입니다.
+ALB와 EC2 Auto Scaling Group은 데이터를 저장하지 않고, 외부 요청을 안전하게 받아 API 서버로 전달하고 서버 수를 조절하는 실행 인프라입니다.
+
+### 가장 고민한 부분
+
+가장 고민한 부분은 API 서버가 RDS에 직접 write하는 구조의 한계였습니다.
+현재 로컬 구현은 앱이 PostgreSQL에 직접 이벤트를 저장하므로 단순하고 재현하기 쉽지만,
+DB 장애가 발생하면 이벤트 저장이 실패하고 재처리하기 어렵습니다.
+
+AWS 설계에서는 API 서버가 이벤트를 RDS에 직접 저장하지 않고 SQS에 먼저 발행하도록 했습니다.
+이후 Lambda consumer가 SQS에서 이벤트를 읽어 RDS Primary에 저장합니다.
+이렇게 하면 RDS나 consumer에 일시적인 장애가 있어도 이벤트를 바로 잃지 않고,
+복구 후 다시 처리할 수 있는 여지를 만들 수 있습니다.
+
+또한 Metabase는 RDS Primary가 아니라 Read Replica를 조회하도록 두었습니다.
+분석 쿼리가 운영 write DB에 영향을 덜 주도록 읽기와 쓰기 부하를 분리하기 위한 선택입니다.
+
+### 고려했지만 구현 범위 밖으로 둔 것
+
+- S3 Raw Event Archive: Lambda가 RDS insert와 동시에 원본 이벤트를 S3에 보관하면 데이터 재처리나 장기 보관에 활용할 수 있습니다.
+- Secrets Manager: DB 접속 정보를 코드나 환경변수에 직접 두지 않고 런타임에 주입할 수 있어 실무에서는 필요한 구성입니다.
+- RDS Multi-AZ: Primary 장애 시 Standby로 자동 failover하기 위한 구성입니다. Read Replica와 목적이 다르며, 운영 환경에서는 별도로 검토해야 합니다.
+- Kafka/MSK: 트래픽이 초당 수만 건 이상으로 커지거나 여러 consumer가 동시에 이벤트를 소비해야 한다면 SQS 대신 Kafka 계열 구성을 고려할 수 있습니다.
+
 ## 향후 개선 방향
 
 - Kafka/Kinesis를 추가해 이벤트 수집과 저장을 비동기 구조로 분리할 수 있습니다.
