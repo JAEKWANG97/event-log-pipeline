@@ -12,7 +12,19 @@ CREATE TABLE IF NOT EXISTS events (
     currency CHAR(3),
     error_code VARCHAR(50),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT events_event_type_check CHECK (
+    CONSTRAINT events_actor_role_check CHECK (
+        actor_role IN ('learner', 'instructor')
+    ),
+    CONSTRAINT events_amount_check CHECK (
+        amount IS NULL OR amount >= 0
+    )
+);
+
+ALTER TABLE events
+    DROP CONSTRAINT IF EXISTS events_event_type_check;
+
+ALTER TABLE events
+    ADD CONSTRAINT events_event_type_check CHECK (
         event_type IN (
             'course_view',
             'lecture_play',
@@ -21,16 +33,10 @@ CREATE TABLE IF NOT EXISTS events (
             'course_created',
             'lecture_uploaded',
             'dashboard_view',
+            'settlement_completed',
             'settlement_failed'
         )
-    ),
-    CONSTRAINT events_actor_role_check CHECK (
-        actor_role IN ('learner', 'instructor')
-    ),
-    CONSTRAINT events_amount_check CHECK (
-        amount IS NULL OR amount >= 0
-    )
-);
+    );
 
 CREATE INDEX IF NOT EXISTS idx_events_occurred_at
     ON events (occurred_at);

@@ -45,8 +45,8 @@ class EventProfile:
     weight: int
 
 
-# 이벤트 weight는 강의 탐색과 재생이 결제 실패나 정산 실패보다 훨씬 자주 발생하는
-# 온라인 강의 플랫폼의 사용 패턴을 반영합니다.
+# 이벤트 weight는 온라인 강의 플랫폼에서 이벤트별 발생 빈도가 다르다고 가정한 상대 비율입니다.
+# 강의 탐색과 재생은 자주 발생하고, 결제 실패나 정산 실패는 상대적으로 드물게 발생하도록 둡니다.
 EVENT_PROFILES = (
     EventProfile("course_view", "learner", 30),
     EventProfile("lecture_play", "learner", 28),
@@ -55,6 +55,7 @@ EVENT_PROFILES = (
     EventProfile("course_created", "instructor", 5),
     EventProfile("lecture_uploaded", "instructor", 10),
     EventProfile("dashboard_view", "instructor", 15),
+    EventProfile("settlement_completed", "instructor", 6),
     EventProfile("settlement_failed", "instructor", 2),
 )
 
@@ -150,7 +151,7 @@ def _money_fields(rng: Random, event_type: str) -> tuple[int | None, str | None]
     # 금액과 통화는 구매나 정산처럼 돈의 흐름이 있는 이벤트에만 기록합니다.
     if event_type in {"purchase_completed", "purchase_failed"}:
         return rng.choice(PURCHASE_AMOUNTS), "KRW"
-    if event_type == "settlement_failed":
+    if event_type in {"settlement_completed", "settlement_failed"}:
         return rng.choice(SETTLEMENT_AMOUNTS), "KRW"
     return None, None
 
